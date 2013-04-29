@@ -1,0 +1,5 @@
+Piotrek1 to M15TRZ i jeden z 2 userow na 3. planecie od Słońca. µ ALE I TAK Z COLLOQUIÓW MA CZASEM 2, DODATKOWO JEST fajny tylko jesli prawdziwe jest wyrazenie '2' == str( 2 )
+
+#proove: 
+python -c "print '2'==str(2)"
+python -c 'print '2'==str(2.0)'
