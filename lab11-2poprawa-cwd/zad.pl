@@ -9,7 +9,7 @@
 
 #uzycie: tar -xf testenv.tar.gz -C testenv && ls -lR . && ./scr.pl && ls -lR . && rm -r testenv
 #uzycie: 
-#./init.sh install; ./scr.pl; ./init.sh uninstall; 
+#./init.sh install; ls -lR; ./zad.pl > /dev/null; ls -lR ; ./init.sh uninstall; 
 
 $numArgs = $#ARGV + 1;
 print "You provided $numArgs arguments\n";
@@ -28,6 +28,7 @@ use File::stat;
 @fnms=(); # nazwa pliku na ktory wskazuje dowiazanie
 @occurences=(); #wartosc licznika wystepujacych elementow
 @firstoccur=(); #pirewsze wystapienie
+@symlinksEnds=(); #endpoints of symlinks, punkty koncowe symlinkow, jakoby wspolny mianownik wszystkich skrotow
 
 sub addoccurence {
 	local($fnme, $value) = ($_[0], realpath($_[0]));
@@ -42,6 +43,7 @@ sub addoccurence {
 	print "adding $value\n";
 	push(@firstoccur, $fnme);
 	push(@fnms, $value);
+	push(@symlinksEnds, realpath(readlink($fnme)));
 	push(@occurences, 1);
 }
 sub getnumberofoccurences {
@@ -56,10 +58,12 @@ sub getnumberofoccurences {
 	}
 	#print "\n";
 }
+
 sub indexOf {
-	local($value) = ($_);
-	for ($i=0; $i<scalar(@fnms); $i++) {
-		if ($value eq $fnms[$i]) {
+	local($value,@array) = (@_);
+	print "looking for $value in @array\n";
+	for ($i=0; $i<scalar(@array); $i++) {
+		if ($value eq $symlinksEnds[$i]) {
 			return $i;
 		}
 	}
@@ -87,6 +91,7 @@ printOccurences();
 
 #na te chwile mamy w tablicach fnms, occurences i firstoccur wszystkie potrzebne dane do daleszeg odzialania
 
+print "fnms=@fnms\n";
 find (\&handleAllEntries, $ARGV[0]);
 sub handleAllEntries {
 	print "not a link" && return if (! -l $_);
@@ -98,10 +103,11 @@ sub handleAllEntries {
 	print "was done before or not enough existing links\n";
 	return;
 	};
-	if ($abs eq $firstoccur[indexOf($a)]) {print "first occur!\n"; return;}
+	$index=indexOf($a,@symlinksEnds);
+	if ($fnme eq $firstoccur[$index]) {print "first occur!\n"; return;}
 	unlink($fnme);
-	symlink($firstoccur[indexOf($a)], $fnme);
-	print "if file $fnme is in {".join(",",@firstoccur)."}[".indexOf($a)."] then copy occ from @firstoccur to $fnme\n";
-	print "changed potning '$fnme' to '".$firstoccur[indexOf($a)]."'\n";
+	symlink($firstoccur[$index], $fnme);
 	print "plik ".$fnme." zostal obsluzony\n";
+	print "if file ".$a." is in {".join(",",@symlinksEnds)."}[".$index."] then copy occ from {@symlinksEnds}[$index] to $fnme\n";
+	print "changed poiting '$fnme' to '".$firstoccur[$index]."'\n";
 }
