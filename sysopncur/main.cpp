@@ -161,8 +161,8 @@ void *animationThread(void *arg)
         //pthread_barrier_wait(&obj->synchro.barrier);
         //sleep(1);
         //pthread_ytrakield();
-        fprintf(stderr, "waitinf %s\n", obj->str);
-        fflush(stderr);
+        //fprintf(stderr, "waitinf %s\n", obj->str);
+        //fflush(stderr);
         usleep(1000*1000/obj->speed);
 
     }
@@ -182,7 +182,8 @@ struct Runnable
 int waterHeight=20;
 int roadWidth=6;
 
-Animable dynamically_created[200];
+#define DYNAMICALLY_CREATED_MAX 2000
+Animable dynamically_created[DYNAMICALLY_CREATED_MAX];
 void *drawingThread(void *)
 {
     while (1)
@@ -200,7 +201,7 @@ void *drawingThread(void *)
 
         for(int i=0; i<MAX_OBJS; ++i)
         {
-            if(objs[i] && objs[i]->tx==objs[i]->fx) objs[i]->draw(); //rysuj tylko samochody
+            if(objs[i] && objs[i]->tx!=objs[i]->fx) objs[i]->draw(); //rysuj tylko statki
         }
         attron(COLOR_PAIR(3));//asfalt
         for(int y=0; y<rzedy; ++y) for(int x=kolumny/2-roadWidth/2; x<kolumny/2+roadWidth/2; ++x) mvprintw(y,x,"~");
@@ -208,9 +209,9 @@ void *drawingThread(void *)
 
         for(int i=0; i<MAX_OBJS; ++i)
         {
-            if(objs[i] && objs[i]->tx!=objs[i]->fx) objs[i]->draw(); //rysuj tylko statki
+            if(objs[i] && objs[i]->tx==objs[i]->fx) objs[i]->draw(); //rysuj tylko samochody
         }
-        for(int i=0; i<200; ++i)
+        for(int i=0; i<DYNAMICALLY_CREATED_MAX; ++i)
         {
             dynamically_created[i].draw();
         }
