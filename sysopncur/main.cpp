@@ -54,7 +54,7 @@ struct Animable: public Drawable
         totalTime=max(abs(tx-fx),abs(ty-fy));
         speed=3;
     };
-    virtual void draw()
+    virtual void draw(bool selected=false)
     {
         if(shouldBeDrawn)
             for(int i=0; i<w; ++i)
@@ -80,9 +80,6 @@ struct Animable: public Drawable
 };
 
 
-#define MAX_OBJS 2000
-Animable *objs[MAX_OBJS];
-int objcnt=0;
 
 struct ThreadsPool
 {
@@ -199,21 +196,17 @@ void *drawingThread(void *)
         for(int y=rzedy/2-waterHeight/2; y<rzedy/2+waterHeight/2; ++y) for(int x=0; x<kolumny; ++x) mvprintw(y,x,"~");
         attroff(COLOR_PAIR(2));
 
-        for(int i=0; i<MAX_OBJS; ++i)
+        for(int i=0; i<DYNAMICALLY_CREATED_MAX; ++i)
         {
-            if(objs[i] && objs[i]->tx!=objs[i]->fx) objs[i]->draw(); //rysuj tylko statki
+            if(dynamically_created[i].tx!=dynamically_created[i].fx) dynamically_created[i].draw();
         }
         attron(COLOR_PAIR(3));//asfalt
         for(int y=0; y<rzedy; ++y) for(int x=kolumny/2-roadWidth/2; x<kolumny/2+roadWidth/2; ++x) mvprintw(y,x,"~");
         attroff(COLOR_PAIR(3));
 
-        for(int i=0; i<MAX_OBJS; ++i)
-        {
-            if(objs[i] && objs[i]->tx==objs[i]->fx) objs[i]->draw(); //rysuj tylko samochody
-        }
         for(int i=0; i<DYNAMICALLY_CREATED_MAX; ++i)
         {
-            dynamically_created[i].draw();
+            if(dynamically_created[i].tx==dynamically_created[i].fx) dynamically_created[i].draw();
         }
 
         attron(COLOR_PAIR(1));//trawa
@@ -238,31 +231,28 @@ int main(int argc, char *argv[])
     init_pair(2, COLOR_BLUE, COLOR_BLUE); //woda
     init_pair(3, COLOR_WHITE, COLOR_WHITE); //asfalt
     stderr=fopen("output.txt", "w+");
+    int selected=0;
     while(1)
     {
         getmaxyx( stdscr, rzedy, kolumny ); //1
         synchro.cntr=1;
-        Animable car('A' ,kolumny/2-roadWidth/2+1, 0, kolumny/2-roadWidth/2+1, rzedy-1,synchro,2,2);
-        Animable car2('B',kolumny/2+roadWidth/2-2-1, rzedy-1  , kolumny/2+roadWidth/2-2-1,0,synchro,2,2);
-        Animable ship('S',kolumny-1, 10, 0, 10,synchro,20,4);
-        objs[0]=&car;
-        objs[1]=&car2;
-        objs[2]=&ship;
-        car.speed=5;
-        car2.speed=10;
-        ship.speed=10;
+        int ile=0;
+        dynamically_created[ile++]=Animable('A' ,kolumny/2-roadWidth/2+1, 0, kolumny/2-roadWidth/2+1, rzedy-1,synchro,2,2);
+        dynamically_created[ile-1].speed=5;
+        Runnable runThatThread(dynamically_created[ile-1]);
+        dynamically_created[ile++]=Animable('B',kolumny/2+roadWidth/2-2-1, rzedy-1  , kolumny/2+roadWidth/2-2-1,0,synchro,2,2);
+        dynamically_created[ile-1].speed=5;
+        runThatThread=Runnable(dynamically_created[ile-1]);
+        dynamically_created[ile++]=Animable('S',kolumny-1, 10, 0, 10,synchro,20,4);
+        dynamically_created[ile-1].speed=10;
+        runThatThread=Runnable(dynamically_created[ile-1]);
         //pthread_mutex_init(&mutex_barrier, NULL);
         //pthread_cond_init(&cond_barrier_initialized, NULL);
         //fprintf(stderr,"Wszystkie watki zatrzymane. Oczekiwanie na inicjalizacje bariery. \n");fflush(stderr);
         sleep(1);
         pthread_t tid;
         pthreadpool.pthread_create(&tid, NULL, drawingThread, (void *)NULL);
-        for(int i=0; i<MAX_OBJS; ++i) if(objs[i])
-            {
-                pthreadpool.pthread_create(&tid, NULL, animationThread, (void *)objs[i]);
-            }
         int k;
-        int ile=0;
         while((k=getch())!='r')
         {
             switch(k)
@@ -291,6 +281,24 @@ int main(int argc, char *argv[])
                 fflush(stderr);
             }
             break;
+            case '[':
+                do selected--;
+                while (selected>1 && !dynamically_created[selected].shouldBeDrawn);
+                fprintf(stderr, "wybrano %d\n", selected);
+                fflush(stderr);
+                break;
+            case ']':
+                do selected++;
+                while (selected+1<DYNAMICALLY_CREATED_MAX && !dynamically_created[selected].shouldBeDrawn);
+                fprintf(stderr, "wybrano %d\n", selected);
+                fflush(stderr);
+                break;
+            case '=':
+                dynamically_created[selected].speed+=1;
+                break;
+            case '-':
+                if(dynamically_created[selected].speed>1)dynamically_created[selected].speed-=1;
+                break;
             }
         };
         perror("RESTARTED");
