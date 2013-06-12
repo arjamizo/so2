@@ -184,7 +184,7 @@ struct Animable: public Drawable
     //This is a trick allowing to pass this function as pthread_create_thread parameter, required parameter is pointer to item of this class, because pointer to class method cannot be passed directly to pthread_create_thread
     //http://stackoverflow.com/questions/1151582/pthread-function-from-a-class
     static void *threadFunctionAccessibleFromOutsideWrapper(void *This) {
-        printf("trying to run %s\n", ((Animable*)This)->str);
+        fprintf(stderr, "trying to run %s\n", ((Animable*)This)->str);
         return (((Animable*)This)->thread());
     }
     void draw(bool selected=false)
@@ -232,12 +232,22 @@ struct CarNS: public Animable {
     Animable(CLASS_CAR_NtoS, label, kolumny/2-roadWidth/2+1, 0, kolumny/2-roadWidth/2+1, rzedy-1,2,2) {
 
     }
+    CarNS(char c, int speed=5) {
+        char label[100];
+        snprintf(label,100,"%c",c);
+        CarNS(label, speed);
+    };
 };
 struct CarSN: public Animable {
     CarSN(const char *label, int speed=5):
     Animable(CLASS_CAR_StoN, label, kolumny/2-roadWidth/2+1+2, rzedy-1, kolumny/2-roadWidth/2+1+2, 0,2,2) {
 
     }
+    CarSN(char c, int speed=5) {
+        char label[100];
+        snprintf(label,100,"%c",c);
+        CarSN(label, speed);
+    };
 };
 struct Ship: public Animable {
     Ship(const char *label, int speed=5):
@@ -248,7 +258,7 @@ struct Ship: public Animable {
 
 void *animateThread(void *obj) {
 Animable* This=(Animable*)obj;
-printf("trying to run %s\n", ((Animable*)This)->str);
+fprintf(stderr, "trying to run %s\n", ((Animable*)This)->str);
 return (This->thread());
 }
 void runThread(void *arg) {
@@ -321,48 +331,39 @@ int main(int argc, char *argv[])
         getmaxyx(stdscr, rzedy, kolumny); //1
         synchro.cntr=1;
         int ile=0;
-        runThread(dynamically_created[ile++]=(new CarNS("A"))->setSpeed(5));
-        //TRICKY ONE! we are using here copy constructor, so this value differs from that one stored in dynamically_created array
-        //pthreadpool.pthread_create(&tid, (const pthread_attr_t*)NULL, threadFunctionAccessibleFromOutsideWrapper, (void *)this);
-        //runThread(&dynamically_created[ile-1]);
-        //Runnable runThatThread(dynamically_created[ile-1]);
-        runThread(dynamically_created[ile++]=(new CarSN("B"))->setSpeed(5));
-        //runThatThread=Runnable(dynamically_created[ile-1]);
-        runThread(dynamically_created[ile++]=(new Ship("C"))->setSpeed(10));
-        //runThatThread=Runnable(dynamically_created[ile-1]);
-        //pthread_mutex_init(&mutex_barrier, NULL);
-        //pthread_cond_init(&cond_barrier_initialized, NULL);
-        //fprintf(stderr,"Wszystkie watki zatrzymane. Oczekiwanie na inicjalizacje bariery. \n");fflush(stderr);
         sleep(1);
         pthread_mutex_init(&screenmutex, NULL);
         pthread_mutex_init(&animationmutex, NULL);
         pthreadpool.pthread_create(&tid, NULL, drawingThread, (void *)NULL);
+        runThread(dynamically_created[ile++]=(new CarNS("A"))->setSpeed(5));
+        runThread(dynamically_created[ile++]=(new CarSN("B"))->setSpeed(5));
+        runThread(dynamically_created[ile++]=(new Ship("C"))->setSpeed(10));
         paused=once=false;
         int k;
+        char label[10];
+        label[0]='A';label[1]=0;
         while((k=getch())!='r')
         {
+            label[0]='A'+ile%('z'-'a');
             switch(k)
             {
-            case 'c':
+            case 'd':
             {
-                //dynamically_created[ile++]=Animable("A", kolumny/2-roadWidth/2+1,  0, kolumny/2-roadWidth/2+1, rzedy-1                  ,synchro,2,2);
-                //Runnable runThatThread(dynamically_created[ile-1]);
-                fprintf(stderr, "created new car\n");
+                runThread(dynamically_created[ile++]=(new CarNS(label))->setSpeed(5));
+                fprintf(stderr, "created new carNS\n");
                 fflush(stderr);
             }
             break;
-            case 'C':
+            case 'c':
             {
-                //dynamically_created[ile++]=Animable("B",kolumny/2+roadWidth/2-2-1, rzedy-1  , kolumny/2+roadWidth/2-2-1,0,synchro,2,2);
-                //Runnable runThatThread(dynamically_created[ile-1]);
+                runThread(dynamically_created[ile++]=(new CarSN(label))->setSpeed(5));
                 fprintf(stderr, "created new car2\n");
                 fflush(stderr);
             }
             break;
             case 's':
             {
-                //dynamically_created[ile++]=Animable("S",kolumny-1, rzedy/2, 0, rzedy/2,synchro,20,4);
-                //Runnable runThatThread(dynamically_created[ile-1]);
+                runThread(dynamically_created[ile++]=(new Ship(label))->setSpeed(5));
                 fprintf(stderr, "created new ship\n");
                 fflush(stderr);
             }
