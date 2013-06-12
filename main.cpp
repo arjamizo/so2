@@ -134,67 +134,74 @@ struct Synchro
 } synchro;
 pthread_mutex_t mutex_barrier;
 pthread_cond_t cond_barrier_initialized;
+#include <cstring>
+void runThread(void *arg);
+
+enum Type {CLASS_SHIP, CLASS_CAR};
 
 struct Animable: public Drawable
 {
     Animable() {};
     char str[100];
-    Synchro *synchro;
-    int posx, posy, fx,tx,fy,ty;
-    int w, h;
+    volatile int posx, posy, fx,tx,fy,ty;
+    int width, height;
     int curTime,totalTime;
     int speed;
     bool shouldBeDrawn;
-    pthread_t id;
-    Animable(const char* c, int fx, int fy, int tx, int ty, Synchro &synchro, int w=1, int h=1):
-        posx(fx),posy(fy),fx(fx),fy(fy),tx(tx),ty(ty),w(w),h(h),synchro(&synchro)
+    pthread_t tid;
+    Type type;
+    void runit() {
+        pthreadpool.pthread_create(&tid, (const pthread_attr_t*)NULL, threadFunctionAccessibleFromOutsideWrapper, (void *)this);
+        fprintf(stderr, "ran thread %s\n", str);
+    }
+    Animable *setSpeed(int speed) {this->speed=speed;return this;}
+    Animable(Type type, const char* c, int fx, int fy, int tx, int ty, int w=1, int h=1):
+        type(type),posx(fx),posy(fy),fx(fx),fy(fy),tx(tx),ty(ty),width(w),height(h)
     {
         snprintf(str, sizeof str, c);
         assert(c);
-        fprintf(stderr,"created new fx%d tx%d fy%d ty%d w%d h%d\n", fx,tx,fy,ty,w,h);
+        fprintf(stderr,"created new %s fx%d tx%d fy%d ty%d w%d h%d\n", str, fx,tx,fy,ty,w,h);
         fflush(stderr);
 
         curTime=-1;
-        shouldBeDrawn=false;
+        shouldBeDrawn=true;
         totalTime=max(abs(tx-fx),abs(ty-fy));
         speed=3;
+        //runit();
+        //runThread(this);
     };
-    void runit() {
-
-    }
-    void *threadFunction() {
+    void *thread() {
         do
         {
-            //MutexLock lock(animationmutex);
-            //pthread_mutex_lock(&mutex_barrier);
-            //fprintf(stderr, "oczekiwanie %s na init bariery...\n", obj->str);
-            //
-            //pthread_cond_wait(&cond_barrier_initialized,&mutex_barrier); //nie trzeba sprawdzac whilem dlatego, ze broadcastujemy wszystko
-
-            //pthread_mutex_unlock(&mutex_barrier);
-            //pthread_barrier_wait(&obj->synchro.barrier);
-            //sleep(1);
-            //pthread_ytrakield();
-            //fprintf(stderr, "waitinf %s\n", obj->str);
-            //fflush(stderr);
             usleep(1000*1000/this->speed);
             pthread_yield();
-            fprintf(stderr, "Drawing %s\n", this->str);
+            fprintf(stderr, "tickig %s\n", this->str);
         }
         while (this->tick());
         pthreadpool.remove(pthread_self());
         return 0;
     }
     //This is a trick allowing to pass this function as pthread_create_thread parameter, required parameter is pointer to item of this class, because pointer to class method cannot be passed directly to pthread_create_thread
+    //http://stackoverflow.com/questions/1151582/pthread-function-from-a-class
     static void *threadFunctionAccessibleFromOutsideWrapper(void *This) {
-        return (((Animable*)This)->threadFunction());
+        printf("trying to run %s\n", ((Animable*)This)->str);
+        return (((Animable*)This)->thread());
     }
-    virtual void draw(bool selected=false)
+    void draw(bool selected=false)
     {
+        if(strlen(str))fprintf(stderr, "drawing %s (%d/%d,%d/%d)\n", str, posy, height, posx, width);
         if(shouldBeDrawn)
-            for(int i=0; i<w; ++i)
-                for(int j=0; j<h; ++j)
-                    mvprintw(posy+j, posx+i, "%c", str[0]);
+        {
+            for(int i=0; i<width; ++i)
+                for(int j=0; j<height; ++j) {
+                    mvprintw(posy+j, posx+i, str);//, str[0]);
+                    //fprintf(stderr, "drawing (%d/%d,%d/%d)\n", posy+j, height, posx+i, width);
+                }
+            fprintf(stderr, "drawing %s\n", str);
+        }
+        else {
+            //fprintf(stderr, "not drawing %s\n", str);
+        }
     }
     virtual bool tick()
     {
@@ -209,66 +216,35 @@ struct Animable: public Drawable
             fprintf(stderr, "progress x=%f py=%f posx=%d posy=%d cT=%d tlTime=%d t=%s\n", px, py, posx, posy, curTime, totalTime, str);
             fflush(stderr);
         }
-        else return shouldBeDrawn=false;
+        else {
+            fprintf(stderr, "%s finished.\n", str);
+            fflush(stderr);
+            return shouldBeDrawn=false;
+        }
         return true;
     }
 };
 
-struct AnimationThreadArgs
-{
-    pthread_t id;
-    Animable *obj;
-    AnimationThreadArgs(pthread_t id, Animable *obj):obj(obj),id(id) {};
-};
-Mutex screenmutex;
-Mutex animationmutex;
-void *animationThread(void *arg)
-{
-    //AnimationThreadArgs *animags=(AnimationThreadArgs*)args;
-    //Animable *obj=animags->obj;
-    Animable *obj=(Animable*)arg;
-    pthread_mutex_lock(&mutex_barrier);
-    obj->synchro->cntr++;
-    pthread_mutex_unlock(&mutex_barrier);
-    fprintf(stderr, "i ruszylo!...\n", obj->str);
-    fflush(stderr);
-    do
-    {
-        //MutexLock lock(animationmutex);
-        //pthread_mutex_lock(&mutex_barrier);
-        //fprintf(stderr, "oczekiwanie %s na init bariery...\n", obj->str);
-        //
-        //pthread_cond_wait(&cond_barrier_initialized,&mutex_barrier); //nie trzeba sprawdzac whilem dlatego, ze broadcastujemy wszystko
 
-        //pthread_mutex_unlock(&mutex_barrier);
-        //pthread_barrier_wait(&obj->synchro.barrier);
-        //sleep(1);
-        //pthread_ytrakield();
-        //fprintf(stderr, "waitinf %s\n", obj->str);
-        //fflush(stderr);
-        usleep(1000*1000/obj->speed);
-        pthread_yield();
-        fprintf(stderr, "Drawing %s\n", obj->str);
-    }
-    while (obj->tick());
-    pthreadpool.remove(pthread_self());
+
+void *animateThread(void *obj) {
+Animable* This=(Animable*)obj;
+printf("trying to run %s\n", ((Animable*)This)->str);
+return (This->thread());
+}
+void runThread(void *arg) {
+    pthread_t tid;
+    pthreadpool.pthread_create(&tid, (const pthread_attr_t*)NULL, animateThread, (void *)arg);
 }
 
-struct Runnable
-{
-    Runnable(const Animable &obj)
-    {
-        pthread_t tid;
-        pthreadpool.pthread_create(&tid, (const pthread_attr_t*)NULL, animationThread, (void *)&obj);
-        //www.sourceware.org/pthreads-win32/manual/pthread_attr_init.html Default value: PTHREAD_CREATE_JOINABLE.
-    }
-};
+Mutex screenmutex;
+Mutex animationmutex;
 
 int waterHeight=20;
 int roadWidth=6;
 
 #define DYNAMICALLY_CREATED_MAX 2000
-Animable dynamically_created[DYNAMICALLY_CREATED_MAX];
+Animable* dynamically_created[DYNAMICALLY_CREATED_MAX];
 void *drawingThread(void *)
 {
     while (1)
@@ -286,7 +262,8 @@ void *drawingThread(void *)
 
         for(int i=0; i<DYNAMICALLY_CREATED_MAX; ++i)
         {
-            if(dynamically_created[i].tx!=dynamically_created[i].fx) dynamically_created[i].draw();
+            //if(dynamically_created[i].tx!=dynamically_created[i].fx) dynamically_created[i].tick();
+            if(dynamically_created[i] && dynamically_created[i]->tx!=dynamically_created[i]->fx) dynamically_created[i]->draw();
         }
         attron(COLOR_PAIR(3));//asfalt
         for(int y=0; y<rzedy; ++y) for(int x=kolumny/2-roadWidth/2; x<kolumny/2+roadWidth/2; ++x) mvprintw(y,x,"~");
@@ -294,13 +271,14 @@ void *drawingThread(void *)
 
         for(int i=0; i<DYNAMICALLY_CREATED_MAX; ++i)
         {
-            if(dynamically_created[i].tx==dynamically_created[i].fx) dynamically_created[i].draw();
+            //if(dynamically_created[i].tx==dynamically_created[i].fx) dynamically_created[i].tick();
+            if(dynamically_created[i] && dynamically_created[i]->tx==dynamically_created[i]->fx) dynamically_created[i]->draw();
         }
 
         attron(COLOR_PAIR(1));//trawa
         move(rzedy-1,kolumny-1);
         attroff(COLOR_PAIR(1));//trawa
-        //pthread_yield(); //let other threads work
+        pthread_yield(); //let other threads work
         //pthread_barrier_wait(&synchro.barrier);
         refresh();
         //printf("printifn\n");
@@ -322,23 +300,23 @@ int main(int argc, char *argv[])
     int selected=0;
     while(1)
     {
+        pthread_t tid;
         getmaxyx(stdscr, rzedy, kolumny); //1
         synchro.cntr=1;
         int ile=0;
-        dynamically_created[ile++]=Animable("A" ,kolumny/2-roadWidth/2+1, 0, kolumny/2-roadWidth/2+1, rzedy-1,synchro,2,2);
-        dynamically_created[ile-1].speed=5;
-        Runnable runThatThread(dynamically_created[ile-1]);
-        dynamically_created[ile++]=Animable("B",kolumny/2+roadWidth/2-2-1, rzedy-1  , kolumny/2+roadWidth/2-2-1,0,synchro,2,2);
-        dynamically_created[ile-1].speed=5;
-        runThatThread=Runnable(dynamically_created[ile-1]);
-        dynamically_created[ile++]=Animable("C",kolumny-1, 10, 0, 10,synchro,20,4);
-        dynamically_created[ile-1].speed=10;
-        runThatThread=Runnable(dynamically_created[ile-1]);
+        runThread(dynamically_created[ile++]=(new Animable(CLASS_CAR, "A", kolumny/2-roadWidth/2+1, 0, kolumny/2-roadWidth/2+1, rzedy-1,2,2))->setSpeed(5));
+        //TRICKY ONE! we are using here copy constructor, so this value differs from that one stored in dynamically_created array
+        //pthreadpool.pthread_create(&tid, (const pthread_attr_t*)NULL, threadFunctionAccessibleFromOutsideWrapper, (void *)this);
+        //runThread(&dynamically_created[ile-1]);
+        //Runnable runThatThread(dynamically_created[ile-1]);
+        runThread(dynamically_created[ile++]=(new Animable(CLASS_CAR, "B", kolumny/2+roadWidth/2-2-1, rzedy-1  , kolumny/2+roadWidth/2-2-1,0,2,2))->setSpeed(5));
+        //runThatThread=Runnable(dynamically_created[ile-1]);
+        runThread(dynamically_created[ile++]=(new Animable(CLASS_SHIP, "C", kolumny-1, 10, 0, 10,20,4))->setSpeed(10));
+        //runThatThread=Runnable(dynamically_created[ile-1]);
         //pthread_mutex_init(&mutex_barrier, NULL);
         //pthread_cond_init(&cond_barrier_initialized, NULL);
         //fprintf(stderr,"Wszystkie watki zatrzymane. Oczekiwanie na inicjalizacje bariery. \n");fflush(stderr);
         sleep(1);
-        pthread_t tid;
         pthread_mutex_init(&screenmutex, NULL);
         pthread_mutex_init(&animationmutex, NULL);
         pthreadpool.pthread_create(&tid, NULL, drawingThread, (void *)NULL);
@@ -350,45 +328,45 @@ int main(int argc, char *argv[])
             {
             case 'c':
             {
-                dynamically_created[ile++]=Animable("A", kolumny/2-roadWidth/2+1,  0, kolumny/2-roadWidth/2+1, rzedy-1                  ,synchro,2,2);
-                Runnable runThatThread(dynamically_created[ile-1]);
+                //dynamically_created[ile++]=Animable("A", kolumny/2-roadWidth/2+1,  0, kolumny/2-roadWidth/2+1, rzedy-1                  ,synchro,2,2);
+                //Runnable runThatThread(dynamically_created[ile-1]);
                 fprintf(stderr, "created new car\n");
                 fflush(stderr);
             }
             break;
             case 'C':
             {
-                dynamically_created[ile++]=Animable("B",kolumny/2+roadWidth/2-2-1, rzedy-1  , kolumny/2+roadWidth/2-2-1,0,synchro,2,2);
-                Runnable runThatThread(dynamically_created[ile-1]);
+                //dynamically_created[ile++]=Animable("B",kolumny/2+roadWidth/2-2-1, rzedy-1  , kolumny/2+roadWidth/2-2-1,0,synchro,2,2);
+                //Runnable runThatThread(dynamically_created[ile-1]);
                 fprintf(stderr, "created new car2\n");
                 fflush(stderr);
             }
             break;
             case 's':
             {
-                dynamically_created[ile++]=Animable("S",kolumny-1, rzedy/2, 0, rzedy/2,synchro,20,4);
-                Runnable runThatThread(dynamically_created[ile-1]);
+                //dynamically_created[ile++]=Animable("S",kolumny-1, rzedy/2, 0, rzedy/2,synchro,20,4);
+                //Runnable runThatThread(dynamically_created[ile-1]);
                 fprintf(stderr, "created new ship\n");
                 fflush(stderr);
             }
             break;
             case '[':
                 do selected--;
-                while (selected>1 && !dynamically_created[selected].shouldBeDrawn);
+                while (selected>1 && !dynamically_created[selected]->shouldBeDrawn);
                 fprintf(stderr, "wybrano %d\n", selected);
                 fflush(stderr);
                 break;
             case ']':
                 do selected++;
-                while (selected+1<DYNAMICALLY_CREATED_MAX && !dynamically_created[selected].shouldBeDrawn);
+                while (selected+1<DYNAMICALLY_CREATED_MAX && !dynamically_created[selected]->shouldBeDrawn);
                 fprintf(stderr, "wybrano %d\n", selected);
                 fflush(stderr);
                 break;
             case '=':
-                dynamically_created[selected].speed+=1;
+                dynamically_created[selected]->speed+=1;
                 break;
             case '-':
-                if(dynamically_created[selected].speed>1)dynamically_created[selected].speed-=1;
+                if(dynamically_created[selected]->speed>1)dynamically_created[selected]->speed-=1;
                 break;
             case 'n':
                 once=true;
