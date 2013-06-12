@@ -137,7 +137,7 @@ pthread_cond_t cond_barrier_initialized;
 #include <cstring>
 void runThread(void *arg);
 
-enum Type {CLASS_SHIP, CLASS_CAR};
+enum Type {CLASS_SHIP, CLASS_CAR_NtoS, CLASS_CAR_StoN};
 
 struct Animable: public Drawable
 {
@@ -225,7 +225,26 @@ struct Animable: public Drawable
     }
 };
 
+int waterHeight=20;
+int roadWidth=6;
+struct CarNS: public Animable {
+    CarNS(const char *label, int speed=5):
+    Animable(CLASS_CAR_NtoS, label, kolumny/2-roadWidth/2+1, 0, kolumny/2-roadWidth/2+1, rzedy-1,2,2) {
 
+    }
+};
+struct CarSN: public Animable {
+    CarSN(const char *label, int speed=5):
+    Animable(CLASS_CAR_StoN, label, kolumny/2-roadWidth/2+1+2, rzedy-1, kolumny/2-roadWidth/2+1+2, 0,2,2) {
+
+    }
+};
+struct Ship: public Animable {
+    Ship(const char *label, int speed=5):
+    Animable(CLASS_SHIP, label, kolumny-1, rzedy/2, 0, rzedy/2,20,4) {
+
+    }
+};
 
 void *animateThread(void *obj) {
 Animable* This=(Animable*)obj;
@@ -240,8 +259,6 @@ void runThread(void *arg) {
 Mutex screenmutex;
 Mutex animationmutex;
 
-int waterHeight=20;
-int roadWidth=6;
 
 #define DYNAMICALLY_CREATED_MAX 2000
 Animable* dynamically_created[DYNAMICALLY_CREATED_MAX];
@@ -304,14 +321,14 @@ int main(int argc, char *argv[])
         getmaxyx(stdscr, rzedy, kolumny); //1
         synchro.cntr=1;
         int ile=0;
-        runThread(dynamically_created[ile++]=(new Animable(CLASS_CAR, "A", kolumny/2-roadWidth/2+1, 0, kolumny/2-roadWidth/2+1, rzedy-1,2,2))->setSpeed(5));
+        runThread(dynamically_created[ile++]=(new CarNS("A"))->setSpeed(5));
         //TRICKY ONE! we are using here copy constructor, so this value differs from that one stored in dynamically_created array
         //pthreadpool.pthread_create(&tid, (const pthread_attr_t*)NULL, threadFunctionAccessibleFromOutsideWrapper, (void *)this);
         //runThread(&dynamically_created[ile-1]);
         //Runnable runThatThread(dynamically_created[ile-1]);
-        runThread(dynamically_created[ile++]=(new Animable(CLASS_CAR, "B", kolumny/2+roadWidth/2-2-1, rzedy-1  , kolumny/2+roadWidth/2-2-1,0,2,2))->setSpeed(5));
+        runThread(dynamically_created[ile++]=(new CarSN("B"))->setSpeed(5));
         //runThatThread=Runnable(dynamically_created[ile-1]);
-        runThread(dynamically_created[ile++]=(new Animable(CLASS_SHIP, "C", kolumny-1, 10, 0, 10,20,4))->setSpeed(10));
+        runThread(dynamically_created[ile++]=(new Ship("C"))->setSpeed(10));
         //runThatThread=Runnable(dynamically_created[ile-1]);
         //pthread_mutex_init(&mutex_barrier, NULL);
         //pthread_cond_init(&cond_barrier_initialized, NULL);
