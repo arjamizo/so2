@@ -7,11 +7,12 @@
 #include <cassert>
 #include <queue>
 #include <cstring>
+#include <cmath>
 using namespace std;
 
 bool paused=false,step=false;
 
-int waterHeight=16;
+int waterHeight=12;
 int roadWidth=6;
 int kolumny, rzedy;
 int bridgeOnWaterXLeft=kolumny/2-roadWidth/2;
@@ -42,9 +43,9 @@ struct ThreadsPool
         for(int i=0; i<MAX_THREADS; ++i)
             if(threads[i]==id)
             {
-                //pthread_cancel(threads[i]);
-                //pthread_join(threads[i], NULL);
-                //threads[i]=0;
+                pthread_cancel(threads[i]);
+                pthread_join(threads[i], NULL);
+                threads[i]=0;
                 return;
             }
         perror("This should never happen. ThreadsPool::remove error.");
@@ -57,7 +58,6 @@ struct ThreadsPool
             {
                 pthread_cancel(threads[i]);
                 pthread_join(threads[i], NULL); //http://jedrzej.ulasiewicz.staff.iiar.pwr.wroc.pl/ProgramowanieWspolbiezne/lab/
-                //TODO pthread_join
                 threads[i]=0;
             }
     }
@@ -89,6 +89,7 @@ enum Type {CLASS_SHIP, CLASS_CAR_NtoS, CLASS_CAR_StoN};
 struct Animable;
 typedef int (*fptr)(const Animable *context, Animable* &waitingFor, int destX, int destY);
 
+int countObjectsOnBridge();
 int isShipOnRight(Animable*& waitingFor);
 struct Animable
 {
@@ -140,7 +141,11 @@ struct Animable
         return (posx+dx<=x && x<=posx+width-dx && posy-dy<=y && y<posy+height+dy);
     }
     bool isInArea(int x, int y, int ty, int by, int lx, int rx) {
-        return (lx+dx<=x && x<rx-dx && posy+dy<y && y<posy+height-dy);
+        if (x==-1 and y==-1) x=posx,y=posy;
+        /*fprintf(stderr, "isInArena: %d<=%d && %d<%d && %d<%d && %d<%d\n"
+                ,posx+dx, x, x, rx-dx, ty+dy, y, y, by-dy);
+        fflush(stderr);*/
+        return (lx+dx<=x && x<rx-dx && ty+dy<y && y<by-dy);
     }
     //This is a trick allowing to pass this function as pthread_create_thread parameter, required parameter is pointer to item of this class, because pointer to class method cannot be passed directly to pthread_create_thread
     //http://stackoverflow.com/questions/1151582/pthread-function-from-a-class
@@ -205,7 +210,7 @@ struct Animable
         destX=fx+(tx-fx)*curTime/totalTime;
         destY=fy+(ty-fy)*curTime/totalTime;
         Animable *waitingFor;
-        fprintf(stderr, "%s ticking, %d. destx %d desty %d, isShipOnRight=%d\n", str, steps++, destX, destY, (int)isShipOnRight(waitingFor));
+        fprintf(stderr, "%s ticking, %d. destx %d desty %d, isShipOnRight=%d countObjectsOnBridge=%d\n", str, steps++, destX, destY, (int)isShipOnRight(waitingFor), countObjectsOnBridge());
         float px=float(posx-fx)/float(tx-fx), py=float(posy-fy)/float(ty-fy);
         //int curTime=min(abs(fx-posx),abs(fy-posy));
         if(curTime>totalTime) {
@@ -390,6 +395,25 @@ int isShipOnRight(Animable*& waitingFor) {
     return false;
 }
 
+int countObjectsOnBridge() {
+    int cnt=0;
+    for(int i=0; i<dynamically_created.size(); ++i) {
+    if (dynamically_created[i]->type!=CLASS_SHIP
+        && dynamically_created[i]->isInArea(-1,-1,bridgeOnWaterTop,bridgeOnWaterYBottom,bridgeOnWaterXLeft,bridgeOnWaterXRight))
+        cnt++;
+    }
+    return cnt;
+}
+
+bool canEnterBridge(const Animable* context, Animable*& mustWaitFor) {
+    if(countObjectsOnBridge()>=3) return false;
+    for(int i=0; i<dynamically_created.size(); ++i) {
+    if (dynamically_created[i]->type!=CLASS_SHIP
+        && dynamically_created[i]->isInArea(-1,-1,bridgeOnWaterTop,bridgeOnWaterYBottom,bridgeOnWaterXLeft,bridgeOnWaterXRight))
+        return context->dy==dynamically_created[i]->dy;
+    }
+}
+
 //-1 - animation finished, thread deleted
 //0 - waiting for signal from monitor
 //1 - handle animatoin in next step
@@ -409,6 +433,15 @@ int canMoveCallback(const Animable* context, Animable*& waitingFor, int destX, i
         }
         if(((destY==bridgeOnWaterTop && context->dy<0) or (destY==bridgeOnWaterYBottom && context->dy>0))
            && isShipOnRight(waitingFor)) {
+            waitingFor=obj;
+            fprintf(stderr, "%s stopped because ship %s on right part of screen, %d==%d or %d==%d\n", context->str, waitingFor->str
+                    , destY, bridgeOnWaterTop, destY, bridgeOnWaterYBottom
+                    );
+            waitingFor=obj;
+            return 0;
+        }
+        if(!canEnterBridge(context, waitingFor) &&
+           ((abs(destY-bridgeOnWaterTop)<=2) && context->dy<0) or (abs(destY-bridgeOnWaterYBottom+context->height)<=2 && context->dy>0)) {
             waitingFor=obj;
             fprintf(stderr, "%s stopped because ship %s on right part of screen, %d==%d or %d==%d\n", context->str, waitingFor->str
                     , destY, bridgeOnWaterTop, destY, bridgeOnWaterYBottom
