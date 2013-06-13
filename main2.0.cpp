@@ -9,6 +9,15 @@
 #include <cstring>
 using namespace std;
 
+bool paused=false,step=false;
+
+int waterHeight=16;
+int roadWidth=6;
+int kolumny, rzedy;
+int bridgeOnWaterXLeft=kolumny/2-roadWidth/2;
+int bridgeOnWaterXRight=kolumny/2+roadWidth/2-1;
+int bridgeOnWaterTop=rzedy/2-waterHeight/2;
+int bridgeOnWaterYBottom=rzedy/2+waterHeight/2;
 
 class MutexLock { //Resource acquisition is initialization!
 public:
@@ -33,9 +42,9 @@ struct ThreadsPool
         for(int i=0; i<MAX_THREADS; ++i)
             if(threads[i]==id)
             {
-                pthread_cancel(threads[i]);
-                pthread_join(threads[i], NULL);
-                threads[i]=0;
+                //pthread_cancel(threads[i]);
+                //pthread_join(threads[i], NULL);
+                //threads[i]=0;
                 return;
             }
         perror("This should never happen. ThreadsPool::remove error.");
@@ -79,6 +88,8 @@ typedef pthread_mutex_t Mutex;
 enum Type {CLASS_SHIP, CLASS_CAR_NtoS, CLASS_CAR_StoN};
 struct Animable;
 typedef int (*fptr)(const Animable *context, Animable* &waitingFor, int destX, int destY);
+
+int isShipOnRight(Animable*& waitingFor);
 struct Animable
 {
     Animable() {};
@@ -90,6 +101,7 @@ struct Animable
     int dx, dy;
     bool shouldBeDrawn;
     pthread_t tid;
+    bool sleeping;
     Type type;
     pthread_cond_t cond;
     Mutex mutex;
@@ -97,6 +109,7 @@ struct Animable
         pthreadpool.pthread_create(&tid, (const pthread_attr_t*)NULL, threadFunctionAccessibleFromOutsideWrapper, (void *)this);
         fprintf(stderr, "ran thread %s\n", str);
     }
+    static fptr canMoveCallback;
     Animable *setSpeed(int speed) {this->speed=speed;return this;}
     Animable(Type type, const char* c, int fx, int fy, int tx, int ty, int w=1, int h=1):
         type(type),posx(fx),posy(fy),fx(fx),fy(fy),tx(tx),ty(ty),width(w),height(h)
@@ -114,6 +127,8 @@ struct Animable
         shouldBeDrawn=false;
         totalTime=max(abs(tx-fx),abs(ty-fy));
         speed=3;
+        sleeping=true;
+        //canMoveCallback=NULL;
         //runit();
         //runThread(this);
     };
@@ -122,7 +137,10 @@ struct Animable
 
     //checks whether (x,y) is in area which object is painted in
     bool takesField(int x, int y) {
-        return (posx+dx<=x && x<=posx+width-dx && posy+dy<=y && y<=posy+height-dy);
+        return (posx+dx<=x && x<=posx+width-dx && posy-dy<=y && y<posy+height+dy);
+    }
+    bool isInArea(int x, int y, int ty, int by, int lx, int rx) {
+        return (lx+dx<=x && x<rx-dx && posy+dy<y && y<posy+height-dy);
     }
     //This is a trick allowing to pass this function as pthread_create_thread parameter, required parameter is pointer to item of this class, because pointer to class method cannot be passed directly to pthread_create_thread
     //http://stackoverflow.com/questions/1151582/pthread-function-from-a-class
@@ -132,6 +150,8 @@ struct Animable
     }
     void draw(bool selected=false)
     {
+        bool sleeping=this->sleeping;
+        if(sleeping) attron(COLOR_PAIR(4));//woda
         //if(strlen(str))fprintf(stderr, "drawing %s (%d/%d,%d/%d)\n", str, posy, height, posx, width);
         if(shouldBeDrawn)
         {
@@ -145,27 +165,32 @@ struct Animable
         else {
             //fprintf(stderr, "not drawing %s\n", str);
         }
+        if(sleeping) attroff(COLOR_PAIR(4));
     }
-    fptr canMoveCallback;
 
-    Animable* setCanMoveCallback(fptr callback) {
-        canMoveCallback=callback;
+    Animable* setCanMoveSpecifiedCallback(fptr callback) {
+        //canMoveCallback=callback;
+        assert(0);
         return this;
+    }
+    static void setCanMoveCallback(fptr callback) {
+        canMoveCallback=callback;
+        return;
     }
 
     int canMove(Animable **waitingFor=0) {
+        if(waitingFor) *waitingFor=NULL;
         int destX, destY;
-
         destX=fx+(tx-fx)*curTime/totalTime;
         destY=fy+(ty-fy)*curTime/totalTime;
         if (canMoveCallback!=NULL) {
             Animable *collision;
             if(canMoveCallback(this, collision, destX, destY)==false) {
-                fprintf(stderr, "waiting %s\n", collision->str);
+                fprintf(stderr, "canMove(): %s is waiting for %s\n", this->str, collision->str);
                 if(waitingFor) *waitingFor=collision;
-                return false;
+                return this->type==CLASS_SHIP;
             }
-        }
+        } else {perror("No canMove callback handler");exit(1);}
         return true;
     }
 
@@ -173,16 +198,16 @@ struct Animable
     //-1 - animation finished, thread deleted
     //0 - waiting for signal from monitor
     //1 - handle animatoin in next step
-    virtual int tick(Animable **waitingFor=0)
+    virtual int tick()
     {
 
-        fprintf(stderr, "%s ticking, %d.\n", str, steps++);
-        float px=float(posx-fx)/float(tx-fx), py=float(posy-fy)/float(ty-fy);
-        //int curTime=min(abs(fx-posx),abs(fy-posy));
         int destX, destY;
-
         destX=fx+(tx-fx)*curTime/totalTime;
         destY=fy+(ty-fy)*curTime/totalTime;
+        Animable *waitingFor;
+        fprintf(stderr, "%s ticking, %d. destx %d desty %d, isShipOnRight=%d\n", str, steps++, destX, destY, (int)isShipOnRight(waitingFor));
+        float px=float(posx-fx)/float(tx-fx), py=float(posy-fy)/float(ty-fy);
+        //int curTime=min(abs(fx-posx),abs(fy-posy));
         if(curTime>totalTime) {
             fprintf(stderr, "%s finished.\n", str);
             fflush(stderr);
@@ -195,7 +220,10 @@ struct Animable
             posy=destY;
             shouldBeDrawn=true;
             pthread_cond_broadcast(&cond);
-            //fprintf(stderr, "progress x=%f py=%f posx=%d posy=%d cT=%d tlTime=%d t=%s\n", px, py, posx, posy, curTime, totalTime, str);
+            if(0)fprintf(stderr, "progress x=%f py=%f fx=%d fy=%d posx=%d posy=%d tx=%d ty=%d cT=%d tlTime=%d t=%s\n", px, py, fx, fy
+                    , posx, posy
+                    , tx, ty
+                    , curTime, totalTime, str);
             fflush(stderr);
         return 1;
     }
@@ -206,23 +234,35 @@ struct Animable
         {
             //fprintf(stderr, "tickig %s\n", this->str);
             Animable *waitingFor;
-            if((ret=this->tick(&waitingFor))==0) {
-                //MutexLock lock(waitingFor->mutex);
-                //while(!this->canMove(&waitingFor)) //rozwiazuje problem
-                //    pthread_cond_wait(&waitingFor->cond, &mutex);
+            if(!this->canMove(&waitingFor)) {
+                fprintf(stderr, "%s thread is waiting for signal from %s\n", str, waitingFor->str);
+                MutexLock lock(waitingFor->mutex);
+                this->sleeping=true;
+                while(!this->canMove(&waitingFor)
+                      || (waitingFor && waitingFor->type==CLASS_SHIP && waitingFor->posx > bridgeOnWaterXLeft)) {
+                    fprintf(stderr, "%s thread is waiting for signal from %s in while loop\n", str, waitingFor->str);
+                    pthread_cond_wait(&waitingFor->cond, &waitingFor->mutex);
+                    fprintf(stderr, "%s received signal from %s\n", str, waitingFor->str);
+                    fflush(stderr);
+                }
+                this->sleeping=false;
             }
+            //do usleep(1000*1000/this->speed); while (paused || !step);step=false;
+            (ret=this->tick())==0;
             //pthread_yield();
-            if(ret==1) usleep(1000*1000/this->speed);
+            if(ret==1) {usleep(1000*1000/this->speed);}
         }
         while (ret!=-1);
+        pthread_cond_broadcast(&cond);
+        fprintf(stderr, "%s sent conditional variable broadcast\n", str);
+        fflush(stderr);
         pthreadpool.remove(pthread_self());
         return 0;
     }
 };
 
-int waterHeight=20;
-int roadWidth=6;
-int kolumny, rzedy;
+
+fptr Animable::canMoveCallback;
 //Mutex ncursesMutex = PTHREAD_MUTEX_INITIALIZER;
 struct CarNS: public Animable {
     CarNS(const char *label, int speed=5):
@@ -254,16 +294,17 @@ struct Ship: public Animable {
         //MutexLock lock(ncursesMutex);
         fprintf(stderr, "created ship %d %d %d %d\n", kolumny-1, rzedy/2, 0, rzedy/2);
     }
-    Ship(char c, int speed=5) {
-        char label[100];
-        snprintf(label,100,"%c",c);
-        Ship(label, speed);
+    Ship(char c, int speed=5):
+    Animable(CLASS_SHIP, NULL, kolumny-1, rzedy/2, 0, rzedy/2,20,4) {
+        //char label[100];
+        snprintf(str, sizeof str, "%c", c);
     };
 };
 
 void *animateThread(void *obj) {
 Animable* This=(Animable*)obj;
 fprintf(stderr, "trying to run %s\n", ((Animable*)This)->str);
+This->sleeping=false;
 return (This->thread());
 }
 
@@ -271,6 +312,7 @@ void runThread(void *arg) {
     pthread_t tid;
     //fprintf(stderr, "creating thread\n");
     pthreadpool.pthread_create(&tid, (const pthread_attr_t*)NULL, animateThread, (void *)arg);
+
     //fprintf(stderr, "created thread\n");
 }
 
@@ -281,11 +323,13 @@ void displayLastError() {
 }
 vector<Animable*> dynamically_created;
 Mutex dynamically_created_mutex=PTHREAD_MUTEX_INITIALIZER;
+
 void *drawingThread(void *)
 {
     rzedy=20, kolumny=30;
     while (1)
     {
+        MutexLock lock(dynamically_created_mutex);
         //MutexLock lock(ncursesMutex);
         //pthread_barrier_init(&synchro.barrier,NULL,synchro.cntr);
         //pthread_cond_broadcast(&cond_barrier_initialized);
@@ -298,25 +342,23 @@ void *drawingThread(void *)
         for(int y=rzedy/2-waterHeight/2; y<rzedy/2+waterHeight/2; ++y) for(int x=0; x<kolumny; ++x) mvprintw(y,x,"~");
         attroff(COLOR_PAIR(2));
 
-        {
-            MutexLock lock(dynamically_created_mutex);
         for(int i=0; i<dynamically_created.size(); ++i)
         if (dynamically_created[i]->type==CLASS_SHIP) {
             //dynamically_created[i]->tick();
             dynamically_created[i]->draw();
         }
-        }
+        bridgeOnWaterXLeft=kolumny/2-roadWidth/2;
+        bridgeOnWaterXRight=kolumny/2+roadWidth/2-1;
+        bridgeOnWaterTop=rzedy/2-waterHeight/2-1;
+        bridgeOnWaterYBottom=rzedy/2+waterHeight/2-1;
         attron(COLOR_PAIR(3));//asfalt
         for(int y=0; y<rzedy; ++y) for(int x=kolumny/2-roadWidth/2; x<kolumny/2+roadWidth/2; ++x) mvprintw(y,x,"~");
         attroff(COLOR_PAIR(3));
 
-        {
-            MutexLock lock(dynamically_created_mutex);
         for(int i=0; i<dynamically_created.size(); ++i)
         if (dynamically_created[i]->type!=CLASS_SHIP) {
             //dynamically_created[i]->tick();
             dynamically_created[i]->draw();
-        }
         }
 
         attron(COLOR_PAIR(1));//trawa
@@ -333,6 +375,51 @@ void *drawingThread(void *)
     return 0;
 }
 
+int isShipOnRight(Animable*& waitingFor) {
+    waitingFor=NULL;
+    for(int i=0; i<dynamically_created.size(); ++i) {
+        if(dynamically_created[i]->type==CLASS_SHIP and dynamically_created[i]->posx+dynamically_created[i]->width >= bridgeOnWaterXRight) {
+            fprintf(stderr, "found ship %s having posx=%d >= %d\n", dynamically_created[i]->str
+                    , dynamically_created[i]->posx
+                    , bridgeOnWaterXRight);
+            fflush(stderr);
+            waitingFor=dynamically_created[i];
+            return true;
+        }
+    }
+    return false;
+}
+
+//-1 - animation finished, thread deleted
+//0 - waiting for signal from monitor
+//1 - handle animatoin in next step
+int canMoveCallback(const Animable* context, Animable*& waitingFor, int destX, int destY) {
+    for(int i=0; i<dynamically_created.size(); ++i) {
+        Animable* obj=dynamically_created[i];
+        if(obj==context || !obj->shouldBeDrawn) continue;
+        if(obj->takesField(destX,destY)) {
+            waitingFor=obj;
+            fprintf(stderr, "%s stopped because of %s, (%d,%d) is in range (%d..%d, %d..%d)\n", context->str, waitingFor->str
+                    , destX, destY
+                    , waitingFor->posx, waitingFor->posx+waitingFor->width
+                    , waitingFor->posy, waitingFor->posy+waitingFor->height
+                    );
+            waitingFor=obj;
+            return 0;
+        }
+        if(((destY==bridgeOnWaterTop && context->dy<0) or (destY==bridgeOnWaterYBottom && context->dy>0))
+           && isShipOnRight(waitingFor)) {
+            waitingFor=obj;
+            fprintf(stderr, "%s stopped because ship %s on right part of screen, %d==%d or %d==%d\n", context->str, waitingFor->str
+                    , destY, bridgeOnWaterTop, destY, bridgeOnWaterYBottom
+                    );
+            waitingFor=obj;
+            return 0;
+        }
+    }
+    return 1;
+}
+
 vector<Animable*> objects;
 int main(int argc, char *argv[])
 {
@@ -345,28 +432,52 @@ int main(int argc, char *argv[])
     init_pair(1, COLOR_CYAN, COLOR_GREEN); //trawa
     init_pair(2, COLOR_BLUE, COLOR_BLUE); //woda
     init_pair(3, COLOR_WHITE, COLOR_WHITE); //asfalt
+    init_pair(4, COLOR_WHITE, COLOR_YELLOW); //uspiony
     pthread_t tid;
     pthread_mutex_init(&dynamically_created_mutex, NULL);
     pthreadpool.pthread_create(&tid, NULL, drawingThread, (void *)NULL);
+    Animable::setCanMoveCallback(canMoveCallback); //this function is called eveytime any object wants to move
     {
-        sleep(2);
+        sleep(1);
         MutexLock lock(dynamically_created_mutex);
-        dynamically_created.push_back((new CarNS("B"))->setSpeed(10));
+        dynamically_created.push_back((new CarNS("B"))->setSpeed(6));
         runThread(dynamically_created.back());
-        dynamically_created.push_back((new Ship("A"))->setSpeed(10));
+        dynamically_created.push_back((new Ship("A"))->setSpeed(20));
         runThread(dynamically_created.back());
-        dynamically_created.push_back((new CarSN("C"))->setSpeed(10));
+        dynamically_created.push_back((new CarSN("C"))->setSpeed(6));
         runThread(dynamically_created.back());
     }
-    int i;
+    int i=4;
+    char name[100];
+    name[0]='A';name[1]=0;
     while(1) {
         char k;
         while((k=getch())!='r') {
+            name[0]='A'+i;
             MutexLock lock(dynamically_created_mutex); //prawdopodobnie lista obiektow sie zmieni, wiec trzeba miec do niej wylacznosc
             switch(k) {
             case 's':
-                dynamically_created.push_back(new Ship("A"));
+                dynamically_created.push_back((new Ship(name))->setSpeed(25));
                 runThread(dynamically_created.back());
+                i++;
+            break;
+            case 'd':
+                dynamically_created.push_back(new CarNS(name));
+                runThread(dynamically_created.back());
+                i++;
+            break;
+            case 'c':
+                dynamically_created.push_back(new CarSN(name));
+                runThread(dynamically_created.back());
+                i++;
+            break;
+            case 'p':
+                paused=!paused;
+                fprintf(stderr, paused?"paused\n":"unpaused\n");
+                fflush(stderr);
+            break;
+            case 'n':
+                step=true;
             break;
             }
         }

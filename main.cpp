@@ -185,7 +185,7 @@ struct Animable: public Drawable
 
     //checks whether (x,y) is in area which object is painted in
     bool takesField(int x, int y) {
-        return (posx+dx<=x && x<=posx+width-dx && posy+dy<=y && y<=posy+height-dy);
+        return (posx+2*dx<=x && x<=posx+width-2*dx && posy+2*dy<=y && y<=posy+height-2*dy);
     }
     void *thread() {
         fprintf(stderr, "thread started\n");
@@ -285,6 +285,8 @@ struct Animable: public Drawable
             posy=destY;
             shouldBeDrawn=true;
             pthread_cond_broadcast(&cond);
+            //pthread_cond_broadcast(&cond);
+            fprintf(stderr, "%s sent conditional variable broadcast\n", str);
             //fprintf(stderr, "progress x=%f py=%f posx=%d posy=%d cT=%d tlTime=%d t=%s\n", px, py, posx, posy, curTime, totalTime, str);
             fflush(stderr);
         return 1;
