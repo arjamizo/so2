@@ -124,25 +124,6 @@ struct Animable
     bool takesField(int x, int y) {
         return (posx+dx<=x && x<=posx+width-dx && posy+dy<=y && y<=posy+height-dy);
     }
-    void *thread() {
-        fprintf(stderr, "thread started\n");
-        int ret=0;
-        do
-        {
-            //fprintf(stderr, "tickig %s\n", this->str);
-            Animable *waitingFor;
-            if((ret=this->tick(&waitingFor))==0) {
-                MutexLock lock(waitingFor->mutex);
-                while(!this->canMove(&waitingFor)) //rozwiazuje problem
-                    pthread_cond_wait(&waitingFor->cond, &mutex);
-            }
-            //pthread_yield();
-            if(ret==1) usleep(1000*1000/this->speed);
-        }
-        while (ret!=-1);
-        pthreadpool.remove(pthread_self());
-        return 0;
-    }
     //This is a trick allowing to pass this function as pthread_create_thread parameter, required parameter is pointer to item of this class, because pointer to class method cannot be passed directly to pthread_create_thread
     //http://stackoverflow.com/questions/1151582/pthread-function-from-a-class
     static void *threadFunctionAccessibleFromOutsideWrapper(void *This) {
@@ -202,19 +183,11 @@ struct Animable
 
         destX=fx+(tx-fx)*curTime/totalTime;
         destY=fy+(ty-fy)*curTime/totalTime;
-        if(curTime==totalTime) {
+        if(curTime>totalTime) {
             fprintf(stderr, "%s finished.\n", str);
             fflush(stderr);
             shouldBeDrawn=false;
             return -1;
-        }
-        if (canMoveCallback!=NULL) {
-            Animable *collision;
-            while(canMoveCallback(this, collision, destX, destY)==false) {
-                fprintf(stderr, "waiting %s\n", collision->str);
-                if(waitingFor) *waitingFor=collision;
-                return 0;
-            }
         }
 
             curTime++;
@@ -225,6 +198,25 @@ struct Animable
             //fprintf(stderr, "progress x=%f py=%f posx=%d posy=%d cT=%d tlTime=%d t=%s\n", px, py, posx, posy, curTime, totalTime, str);
             fflush(stderr);
         return 1;
+    }
+    virtual void *thread() {
+        fprintf(stderr, "thread started\n");
+        int ret=0;
+        do
+        {
+            //fprintf(stderr, "tickig %s\n", this->str);
+            Animable *waitingFor;
+            if((ret=this->tick(&waitingFor))==0) {
+                //MutexLock lock(waitingFor->mutex);
+                //while(!this->canMove(&waitingFor)) //rozwiazuje problem
+                //    pthread_cond_wait(&waitingFor->cond, &mutex);
+            }
+            //pthread_yield();
+            if(ret==1) usleep(1000*1000/this->speed);
+        }
+        while (ret!=-1);
+        pthreadpool.remove(pthread_self());
+        return 0;
     }
 };
 
@@ -262,6 +254,11 @@ struct Ship: public Animable {
         //MutexLock lock(ncursesMutex);
         fprintf(stderr, "created ship %d %d %d %d\n", kolumny-1, rzedy/2, 0, rzedy/2);
     }
+    Ship(char c, int speed=5) {
+        char label[100];
+        snprintf(label,100,"%c",c);
+        Ship(label, speed);
+    };
 };
 
 void *animateThread(void *obj) {
@@ -283,17 +280,16 @@ void displayLastError() {
     fclose(stderr);
 }
 vector<Animable*> dynamically_created;
+Mutex dynamically_created_mutex=PTHREAD_MUTEX_INITIALIZER;
 void *drawingThread(void *)
 {
     rzedy=20, kolumny=30;
-    //while (1)
+    while (1)
     {
         //MutexLock lock(ncursesMutex);
         //pthread_barrier_init(&synchro.barrier,NULL,synchro.cntr);
         //pthread_cond_broadcast(&cond_barrier_initialized);
-        fprintf(stderr, "HERE1\n");
         getmaxyx(stdscr, rzedy, kolumny); //1
-        fprintf(stderr, "HERE2\n");
         erase();
         attron(COLOR_PAIR(1));//trawa
         for(int y=0; y<rzedy; ++y) for(int x=0; x<kolumny; ++x) mvprintw(y,x," ");
@@ -302,20 +298,25 @@ void *drawingThread(void *)
         for(int y=rzedy/2-waterHeight/2; y<rzedy/2+waterHeight/2; ++y) for(int x=0; x<kolumny; ++x) mvprintw(y,x,"~");
         attroff(COLOR_PAIR(2));
 
-
+        {
+            MutexLock lock(dynamically_created_mutex);
         for(int i=0; i<dynamically_created.size(); ++i)
         if (dynamically_created[i]->type==CLASS_SHIP) {
             //dynamically_created[i]->tick();
             dynamically_created[i]->draw();
         }
+        }
         attron(COLOR_PAIR(3));//asfalt
         for(int y=0; y<rzedy; ++y) for(int x=kolumny/2-roadWidth/2; x<kolumny/2+roadWidth/2; ++x) mvprintw(y,x,"~");
         attroff(COLOR_PAIR(3));
 
+        {
+            MutexLock lock(dynamically_created_mutex);
         for(int i=0; i<dynamically_created.size(); ++i)
         if (dynamically_created[i]->type!=CLASS_SHIP) {
             //dynamically_created[i]->tick();
             dynamically_created[i]->draw();
+        }
         }
 
         attron(COLOR_PAIR(1));//trawa
@@ -326,7 +327,7 @@ void *drawingThread(void *)
         //printf("przed ref\n");
         refresh();
         //printf("porefresh\n");
-        usleep(100*1000);
+        //usleep(100*1000);
         //getch();
     }
     return 0;
@@ -344,15 +345,31 @@ int main(int argc, char *argv[])
     init_pair(1, COLOR_CYAN, COLOR_GREEN); //trawa
     init_pair(2, COLOR_BLUE, COLOR_BLUE); //woda
     init_pair(3, COLOR_WHITE, COLOR_WHITE); //asfalt
-    dynamically_created.push_back(new CarNS("B"));
-    dynamically_created.push_back(new Ship("A"));
-    dynamically_created.push_back(new CarSN("C"));
+    pthread_t tid;
+    pthread_mutex_init(&dynamically_created_mutex, NULL);
+    pthreadpool.pthread_create(&tid, NULL, drawingThread, (void *)NULL);
+    {
+        sleep(2);
+        MutexLock lock(dynamically_created_mutex);
+        dynamically_created.push_back((new CarNS("B"))->setSpeed(10));
+        runThread(dynamically_created.back());
+        dynamically_created.push_back((new Ship("A"))->setSpeed(10));
+        runThread(dynamically_created.back());
+        dynamically_created.push_back((new CarSN("C"))->setSpeed(10));
+        runThread(dynamically_created.back());
+    }
+    int i;
     while(1) {
-        drawingThread(0);
-        for(int i=0; i<3; ++i) {
-            dynamically_created[i]->tick();
+        char k;
+        while((k=getch())!='r') {
+            MutexLock lock(dynamically_created_mutex); //prawdopodobnie lista obiektow sie zmieni, wiec trzeba miec do niej wylacznosc
+            switch(k) {
+            case 's':
+                dynamically_created.push_back(new Ship("A"));
+                runThread(dynamically_created.back());
+            break;
+            }
         }
-        fprintf(stderr, "tick\n");
         //sleep(1);
     }
 }
