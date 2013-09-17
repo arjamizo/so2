@@ -466,10 +466,10 @@ int canMoveCallback(const Animable* context, Animable*& waitingFor, int destX, i
             return 0;
         }
         if(!canEnterBridge(context, waitingFor) &&
-                ((abs(destY-bridgeOnWaterTop)<=2) && context->dy<0) or (abs(destY-bridgeOnWaterYBottom+context->height)<=2 && context->dy>0))
+                ((abs(destY-bridgeOnWaterTop)<=1) && context->dy<0) or (abs(destY-bridgeOnWaterYBottom+context->height-1)<=1 && context->dy>0))
         {
             waitingFor=obj;
-            fprintf(stderr, "%s stopped because ship %s on right part of screen, %d==%d or %d==%d\n", context->str, waitingFor->str
+            fprintf(stderr, "%s stopped because there are 3 or more cars on bridge, %d==%d or %d==%d\n", context->str, waitingFor->str
                     , destY, bridgeOnWaterTop, destY, bridgeOnWaterYBottom
                    );
             waitingFor=obj;
@@ -520,7 +520,7 @@ int main(int argc, char *argv[])
             switch(k)
             {
             case 's':
-                dynamically_created.push_back((new Ship(name))->setSpeed(25));
+                dynamically_created.push_back((new Ship(name))->setSpeed(15));
                 runThread(dynamically_created.back());
                 i++;
                 break;
@@ -547,3 +547,4 @@ int main(int argc, char *argv[])
         pthreadpool.removeAll();
     }
 }
+
