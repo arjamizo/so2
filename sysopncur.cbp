@@ -36,11 +36,11 @@
 			<Add option="-lncurses" />
 			<Add option="-lpthread" />
 		</Linker>
-		<Unit filename="main.cpp" />
-		<Unit filename="main2.0.cpp">
+		<Unit filename="main.cpp">
 			<Option compile="0" />
 			<Option link="0" />
 		</Unit>
+		<Unit filename="main2.0.cpp" />
 		<Unit filename="readme.txt" />
 		<Extensions>
 			<code_completion />
