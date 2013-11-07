@@ -1,0 +1,4 @@
+-rw-r--r--	1	azochnia	students	55	kwi	15	15:42	text.txt
+-rw-r--r--	1	azochnia	students	63	kwi	15	15:42	text.txt~
+-rwxr-xr-x	1	azochnia	students	84	kwi	15	15:50	zad1.sh
+-rwxr-xr-x	1	azochnia232232	students	57	kwi	15	15:50	zad1.sh~
